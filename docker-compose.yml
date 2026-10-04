@@ -1,0 +1,17 @@
+services:
+  api:
+    build:
+      context: .
+      target: runtime
+    image: ai-chat-service:local
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      APP_ENV: dev
+      APP_LOG_JSON: "true"
+    init: true            # tiny init process: reaps zombies, forwards signals
+    stop_grace_period: 25s
+    restart: unless-stopped
