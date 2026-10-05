@@ -20,6 +20,7 @@ request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("request_id
 
 _RESERVED = set(vars(logging.LogRecord("", 0, "", 0, "", None, None))) | {"message", "asctime"}
 _factory_installed = False
+_HANDLER_NAME = "ai-chat-service"
 
 
 class JsonFormatter(logging.Formatter):
@@ -63,8 +64,14 @@ def configure_logging(level: str = "INFO", *, json_logs: bool = True) -> None:
         handler.setFormatter(
             logging.Formatter("%(asctime)s %(levelname)-7s [%(request_id)s] %(name)s: %(message)s")
         )
+    handler.set_name(_HANDLER_NAME)
     root = logging.getLogger()
-    root.handlers.clear()
+    # Replace only OUR handler (idempotent across create_app() calls). Clearing
+    # every root handler would also remove handlers that other code installed,
+    # e.g. pytest's caplog or an APM agent.
+    for existing in list(root.handlers):
+        if existing.get_name() == _HANDLER_NAME:
+            root.removeHandler(existing)
     root.addHandler(handler)
     root.setLevel(level)
     for noisy in ("httpx", "httpcore", "uvicorn.access"):
