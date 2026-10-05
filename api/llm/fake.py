@@ -95,6 +95,7 @@ class FakeLLMClient:
         messages: Sequence[Message],
         temperature: float,
         max_tokens: int,
+        response_schema: dict[str, Any] | None = None,
     ) -> LLMResult:
         self.calls.append(list(messages))
         self.in_flight += 1
@@ -120,6 +121,7 @@ class FakeLLMClient:
         messages: Sequence[Message],
         temperature: float,
         max_tokens: int,
+        response_schema: dict[str, Any] | None = None,
     ) -> AsyncGenerator[str, None]:
         result = await self.complete(
             system=system, messages=messages, temperature=temperature, max_tokens=max_tokens

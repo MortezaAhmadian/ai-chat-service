@@ -14,26 +14,12 @@ from typing import Any
 
 import httpx
 
-from api.errors import (
-    LLMBadRequestError,
-    LLMRateLimitError,
-    LLMServerError,
-    LLMTimeoutError,
-)
+from api.errors import LLMServerError, LLMTimeoutError
 from api.llm.base import LLMResult
+from api.llm.http_errors import raise_for_status
 from api.schemas import Message
 
 ANTHROPIC_VERSION = "2023-06-01"
-_RETRYABLE_STATUS = {500, 502, 503, 504, 529}
-
-
-def _parse_retry_after(value: str | None) -> float | None:
-    if value is None:
-        return None
-    try:
-        return max(0.0, float(value))
-    except ValueError:
-        return None  # could be an HTTP-date; keep it simple
 
 
 class AnthropicClient:
@@ -74,19 +60,7 @@ class AnthropicClient:
 
     @staticmethod
     def _raise_for_status(resp: httpx.Response) -> None:
-        status = resp.status_code
-        if status < 400:
-            return
-        details = {"status": status, "body": resp.text[:500]}
-        if status == 429:
-            raise LLMRateLimitError(
-                "provider rate limit",
-                retry_after=_parse_retry_after(resp.headers.get("retry-after")),
-                details=details,
-            )
-        if status in _RETRYABLE_STATUS:
-            raise LLMServerError(f"provider returned {status}", details=details)
-        raise LLMBadRequestError(f"provider rejected request ({status})", details=details)
+        raise_for_status(resp, provider="anthropic")
 
     async def complete(
         self,
@@ -95,6 +69,7 @@ class AnthropicClient:
         messages: Sequence[Message],
         temperature: float,
         max_tokens: int,
+        response_schema: dict[str, Any] | None = None,  # schema is in the prompt; not enforced here
     ) -> LLMResult:
         payload = self._payload(system, messages, temperature, max_tokens)
         try:
@@ -122,6 +97,7 @@ class AnthropicClient:
         messages: Sequence[Message],
         temperature: float,
         max_tokens: int,
+        response_schema: dict[str, Any] | None = None,
     ) -> AsyncGenerator[str, None]:
         payload = self._payload(system, messages, temperature, max_tokens) | {"stream": True}
         try:

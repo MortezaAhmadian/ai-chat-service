@@ -7,7 +7,7 @@ verifies both satisfy it. This keeps the domain decoupled from vendors.
 
 from collections.abc import AsyncGenerator, Sequence
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from api.schemas import Message
 
@@ -22,6 +22,10 @@ class LLMResult:
 
 @runtime_checkable
 class LLMClient(Protocol):
+    """`response_schema` is an optional JSON Schema the provider MAY enforce with
+    constrained decoding (vLLM does). Providers that can't enforce it ignore it;
+    we validate with Pydantic afterwards either way."""
+
     name: str
 
     async def complete(
@@ -31,6 +35,7 @@ class LLMClient(Protocol):
         messages: Sequence[Message],
         temperature: float,
         max_tokens: int,
+        response_schema: dict[str, Any] | None = None,
     ) -> LLMResult: ...
 
     # NOTE: declared with plain `def` returning AsyncGenerator. An implementation
@@ -43,6 +48,7 @@ class LLMClient(Protocol):
         messages: Sequence[Message],
         temperature: float,
         max_tokens: int,
+        response_schema: dict[str, Any] | None = None,
     ) -> AsyncGenerator[str, None]: ...
 
     async def aclose(self) -> None: ...
