@@ -23,15 +23,15 @@ cov:
 check: lint type cov
 
 run:
-	uvicorn api.main:create_app --factory --reload --port 8080
+	uvicorn api.main:create_app --factory --reload --port 8099
 
 # API backed by the vLLM server (start vLLM first; see README "Local GPU with vLLM")
 run-vllm:
-	APP_LLM_PROVIDER=vllm uvicorn api.main:create_app --factory --reload --port 8080
+	APP_LLM_PROVIDER=vllm uvicorn api.main:create_app --factory --reload --port 8099
 
 # Is vLLM up, and which model id does it serve?
 vllm-check:
-	curl -s $${APP_VLLM_BASE_URL:-http://localhost:8000/v1}/models | python -m json.tool
+	curl -s $${APP_VLLM_BASE_URL:-http://onu3.s2.chalmers.se:8001/v1}/models | python -m json.tool
 
 docker-build:
 	docker build --target runtime -t ai-chat-service:local .
