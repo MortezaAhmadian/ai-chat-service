@@ -26,6 +26,7 @@ from api.services.structured import (
     build_repair_prompt,
     build_system_prompt,
     parse_structured,
+    response_schema,
     summarize_errors,
 )
 
@@ -92,7 +93,11 @@ class ChatService:
         chunks: list[str] = []
         async with self.limiter.slot():
             upstream = self.llm.stream(
-                system=system, messages=convo, temperature=req.temperature, max_tokens=req.max_tokens
+                system=system,
+                messages=convo,
+                temperature=req.temperature,
+                max_tokens=req.max_tokens,
+                response_schema=response_schema(StructuredReply),
             )
             try:
                 while True:
@@ -185,6 +190,7 @@ class ChatService:
                             messages=messages,
                             temperature=req.temperature,
                             max_tokens=req.max_tokens,
+                            response_schema=response_schema(StructuredReply),
                         )
                 except TimeoutError as exc:
                     raise LLMTimeoutError(f"LLM call exceeded {self._llm_timeout_s}s") from exc

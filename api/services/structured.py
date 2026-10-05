@@ -7,18 +7,32 @@ build a repair prompt that feeds the exact validation errors back to the model.
 import functools
 import json
 import re
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
 M = TypeVar("M", bound=BaseModel)
 
 _FENCE = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.DOTALL | re.IGNORECASE)
+_THINK_CLOSE = "</think>"
+_THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+
+
+def strip_reasoning(text: str) -> str:
+    """Remove reasoning traces from hybrid-thinking models (Qwen3/3.5, DeepSeek-R1).
+
+    Two shapes occur: a full <think>...</think> block, or only the closing tag
+    when the chat template already put <think> in the prompt. Reasoning often
+    contains braces, which would confuse JSON extraction, so strip it first.
+    """
+    if _THINK_CLOSE in text.lower():
+        text = text[text.lower().rindex(_THINK_CLOSE) + len(_THINK_CLOSE) :]
+    return _THINK_BLOCK.sub("", text)
 
 
 def extract_json_block(text: str) -> str:
     """Models often wrap JSON in ```json fences or add a sentence before it."""
-    candidate = text.strip()
+    candidate = strip_reasoning(text).strip()
     if match := _FENCE.match(candidate):
         candidate = match.group(1).strip()
     if not candidate.startswith("{"):
@@ -49,6 +63,13 @@ def build_repair_prompt(err: ValidationError) -> str:
         f"Validation errors:\n{lines}\n"
         "Reply again with ONLY the corrected JSON object. No prose, no code fences."
     )
+
+
+@functools.cache
+def response_schema(model: type[BaseModel]) -> dict[str, Any]:
+    """JSON Schema handed to providers that support constrained decoding.
+    Cached: generated once per model class. Treat the returned dict as read-only."""
+    return model.model_json_schema()
 
 
 @functools.cache  # schema generation is not free; do it once per model

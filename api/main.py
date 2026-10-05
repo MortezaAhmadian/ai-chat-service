@@ -16,6 +16,7 @@ from api import __version__
 from api.config import Settings, get_settings
 from api.handlers import register_exception_handlers
 from api.llm import LLMClient, build_llm_client
+from api.llm.openai_compat import OpenAICompatibleClient
 from api.logging_config import configure_logging
 from api.middleware import RequestContextMiddleware
 from api.routes import chat, health
@@ -58,6 +59,8 @@ def create_app(settings: Settings | None = None, *, llm_client: LLMClient | None
             stream_idle_timeout_s=settings.stream_idle_timeout_s,
             max_repairs=settings.structured_max_repairs,
         )
+        if isinstance(llm, OpenAICompatibleClient):
+            await llm.verify_model()  # logs a clear error if the model name doesn't match vLLM
         logger.info("startup", extra={"env": settings.env, "llm_provider": llm.name})
         try:
             yield
