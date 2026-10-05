@@ -20,10 +20,24 @@ class Settings(BaseSettings):
     log_json: bool = True
 
     # --- LLM provider -------------------------------------------------------
-    llm_provider: Literal["fake", "anthropic"] = "fake"
+    llm_provider: Literal["fake", "anthropic", "vllm"] = "fake"
     anthropic_api_key: SecretStr | None = None  # SecretStr: never printed in logs/repr
     anthropic_model: str = "claude-sonnet-5-5"
     anthropic_base_url: str = "https://api.anthropic.com"
+
+    # --- vLLM (or any OpenAI-compatible server) on your GPU ---------------------
+    # Must match what vLLM serves: the HF repo id, or --served-model-name if set.
+    vllm_base_url: str = "http://localhost:8000/v1"
+    vllm_model: str = "Qwen/Qwen3.5-4B"
+    vllm_api_key: SecretStr | None = None  # only if vLLM was started with --api-key
+    vllm_guided_json: bool = True  # constrained decoding via response_format=json_schema
+    vllm_enable_thinking: bool = False
+    # Qwen3.5 non-thinking sampling defaults, except presence_penalty: the
+    # recommended 2.0 penalises repeated tokens, and JSON repeats `"` `:` `,`
+    # constantly, so we keep it at 0 for structured output.
+    vllm_top_p: float = Field(default=1.0, gt=0, le=1)
+    vllm_top_k: int = Field(default=20, ge=-1)
+    vllm_presence_penalty: float = Field(default=0.0, ge=-2, le=2)
 
     # --- Resilience -----------------------------------------------------------
     llm_timeout_s: float = Field(default=30.0, gt=0)
