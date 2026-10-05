@@ -241,3 +241,21 @@ class TestHealthAndLifecycle:
         assert resp.status_code == 500
         assert resp.json()["error"]["code"] == "internal_error"
         assert "hunter2" not in resp.text
+
+
+async def test_lifespan_verifies_vllm_model(caplog: pytest.LogCaptureFixture) -> None:
+    from api.llm.openai_compat import OpenAICompatibleClient
+    from api.main import create_app
+    from tests.conftest import make_settings
+
+    http = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"data": [{"id": "other-model"}]})),
+        base_url="http://gpu/v1/",
+    )
+    llm = OpenAICompatibleClient(base_url="unused", model="Qwen/Qwen3.5-4B", timeout_s=1, http=http)
+    app = create_app(make_settings(), llm_client=llm)
+    with caplog.at_level(logging.ERROR):
+        async with app.router.lifespan_context(app):
+            pass
+    assert "vllm_model_mismatch" in caplog.messages
+    await http.aclose()

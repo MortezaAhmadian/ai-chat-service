@@ -48,3 +48,16 @@ def test_system_prompt_embeds_schema_and_is_cached() -> None:
     first = build_system_prompt(StructuredReply)
     assert '"discriminator"' in first
     assert build_system_prompt(StructuredReply) is first  # functools.cache
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        '<think>\nThe user wants {braces} explained.\n</think>\n\n{"a": 1}',
+        'Okay, let me reason about {x}.\n</think>\n{"a": 1}',  # template opened <think> in the prompt
+        '<think></think>{"a": 1}',
+    ],
+    ids=["full-block", "close-tag-only", "empty-think"],
+)
+def test_reasoning_is_stripped_before_json_extraction(raw: str) -> None:
+    assert extract_json_block(raw) == '{"a": 1}'
