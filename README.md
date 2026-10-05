@@ -19,7 +19,8 @@ agent action**. It is small enough to read in an evening, but every piece exists
 AI system needs it: timeouts, retries, backpressure, streaming, request coalescing, structured
 output repair, observability, tests, and a container image.
 
-It runs **fully offline** with a deterministic fake LLM. Flip one env var to call Anthropic.
+Providers: **Qwen3.5 on your own GPU via vLLM**, a deterministic offline fake (used by the
+tests), or Anthropic. Switch with one env var: `APP_LLM_PROVIDER=vllm|fake|anthropic`.
 
 ---
 
@@ -31,7 +32,7 @@ pip install -r requirements-dev.txt
 cp .env.example .env
 
 make check   # ruff + mypy --strict + pytest with coverage
-make run     # http://localhost:8000/docs
+make run     # http://localhost:8080/docs  (uses the provider set in .env)
 ```
 
 With Docker:
@@ -52,7 +53,7 @@ docker build --target test .       # runs lint + types + tests inside the build
 | GET | `/health/ready` | Readiness + circuit state + LLM slots in use |
 
 ```bash
-curl -s localhost:8000/chat -H 'content-type: application/json' \
+curl -s localhost:8080/chat -H 'content-type: application/json' \
   -d '{"messages":[{"role":"user","content":"12 * (3 + 4)"}]}' | jq
 ```
 
@@ -72,7 +73,7 @@ curl -s localhost:8000/chat -H 'content-type: application/json' \
 }
 ```
 
-Streaming: `curl -N localhost:8000/chat/stream -H 'content-type: application/json' -d '{"messages":[{"role":"user","content":"tell me something"}]}'`
+Streaming: `curl -N localhost:8080/chat/stream -H 'content-type: application/json' -d '{"messages":[{"role":"user","content":"tell me something"}]}'`
 
 Errors always look the same and carry the request id you can grep for in the logs:
 
@@ -105,7 +106,8 @@ api/
   logging_config.py    JSON logs, contextvars, LogRecord factory
   dependencies.py      FastAPI DI aliases
   routes/              chat.py (chat, batch, stream), health.py
-  llm/                 base.py (Protocol), fake.py, anthropic.py (raw httpx), factory.py
+  llm/                 base.py (Protocol), openai_compat.py (vLLM), fake.py, anthropic.py,
+                       http_errors.py (shared status mapping), factory.py
   services/
     chat_service.py    orchestration + self-repair loop + streaming
     resilience.py      retry/backoff/jitter, ParamSpec decorator, circuit breaker
@@ -113,7 +115,7 @@ api/
     cache.py           TTL + LRU + single-flight with asyncio.shield
     structured.py      JSON extraction, validation, repair prompt
     redaction.py       PII redaction, asyncio.to_thread
-tests/                 91 tests, ~94% branch coverage
+tests/                 115 tests, ~94% branch coverage
 Dockerfile             multi-stage: builder / test / runtime
 .github/workflows/     CI: lint, mypy, tests (3.11 + 3.12), docker build
 docs/INTERVIEW_GUIDE.md   ← read this before an interview
@@ -144,14 +146,71 @@ CONTRIBUTING.md        Git/GitHub workflow
 | **Docker** | `Dockerfile` | Layer caching, multi-stage, non-root, exec-form CMD, HEALTHCHECK |
 | **Git/GitHub** | `CONTRIBUTING.md`, `.github/` | Trunk-based flow, Conventional Commits, CI gates, PR template |
 
-## Using a real LLM
+## Local GPU with vLLM (Qwen3.5)
 
-```bash
-APP_LLM_PROVIDER=anthropic APP_ANTHROPIC_API_KEY=sk-ant-... make run
+```text
+ client ──► :8080  ai-chat-service (async, CPU only)
+                     │  POST /v1/chat/completions
+                     │  response_format=json_schema   (constrained decoding)
+                     │  chat_template_kwargs.enable_thinking=false
+                     ▼
+            :8000  vLLM  ──► GPU  (Qwen/Qwen3.5-4B, continuous batching)
 ```
 
-The provider sits behind the `LLMClient` Protocol, so adding OpenAI, Bedrock or a local model
-is one new class plus one branch in `llm/factory.py`. Nothing else changes.
+**1. vLLM.** You already have it running. If you start it again, these flags matter on a
+consumer GPU:
+
+```bash
+vllm serve Qwen/Qwen3.5-4B --port 8000 \
+  --max-model-len 16384 \
+  --gpu-memory-utilization 0.85 \
+  --language-model-only
+```
+
+`--max-model-len`: the 262k default context reserves far more KV cache than a desktop GPU has.
+`--language-model-only`: Qwen3.5 is multimodal; skipping the vision encoder frees VRAM.
+
+**2. Check the model id.** It must match `APP_VLLM_MODEL` exactly:
+
+```bash
+make vllm-check          # look at "id" in the output
+```
+
+If you started vLLM with `--served-model-name qwen`, set `APP_VLLM_MODEL=qwen`. If you serve
+`Qwen/Qwen3.5-2B` instead of 4B, change it to that. On startup the API logs
+`vllm_model_verified`, or `vllm_model_mismatch` with the served ids.
+
+**3. Run the API.**
+
+```bash
+cp .env.example .env     # already set to APP_LLM_PROVIDER=vllm
+make run                 # http://localhost:8080/docs
+# or in Docker (reaches vLLM on the host via host.docker.internal):
+docker compose up --build api
+```
+
+**What the vLLM integration does** (`api/llm/openai_compat.py`):
+
+| Concern | How it's handled |
+|---|---|
+| Valid JSON from a small model | `response_format=json_schema` → vLLM constrains sampling to the `StructuredReply` schema. Pydantic still validates (schema-valid ≠ semantically valid). Disable with `APP_VLLM_GUIDED_JSON=false` to watch the repair loop do the work instead. |
+| Qwen3.5 thinking mode | `enable_thinking` is sent explicitly (default off): reasoning text burns tokens and breaks JSON. Any `<think>…</think>` that slips through is stripped before parsing. |
+| Sampling | Qwen's recommended `top_k=20`, `top_p=1.0`; `presence_penalty=0` because JSON legitimately repeats `"`, `:` and `,`. |
+| Truncated output | `finish_reason == "length"` is logged as `llm_output_truncated`, the usual root cause of "invalid JSON". |
+| vLLM down / restarting | Connection errors are retryable `LLMServerError`s, so retries and the circuit breaker apply. |
+| Concurrency | vLLM batches parallel requests on the GPU; raise `APP_LLM_MAX_CONCURRENCY` until per-request latency starts to climb. |
+| Port clash | vLLM owns `:8000`, the API runs on `:8080`. |
+
+Try it:
+
+```bash
+curl -s localhost:8080/chat -H 'content-type: application/json' \
+  -d '{"messages":[{"role":"user","content":"What is the weather in Rome?"}]}' | jq .reply
+```
+
+Using **Anthropic** instead: `APP_LLM_PROVIDER=anthropic APP_ANTHROPIC_API_KEY=sk-ant-... make run`.
+Adding another OpenAI-compatible server (SGLang, llama.cpp, LM Studio, Ollama's `/v1`) needs
+no code: point `APP_VLLM_BASE_URL` at it.
 
 ## Exercises (do these to really own the material)
 

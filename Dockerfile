@@ -34,11 +34,11 @@ WORKDIR /app
 COPY --from=builder /opt/venv /opt/venv
 COPY --chown=app:app api ./api
 USER app
-EXPOSE 8000
+EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=2)" || exit 1
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/live', timeout=2)" || exit 1
 # Exec form (JSON array): uvicorn is PID 1 and receives SIGTERM directly,
 # so `docker stop` triggers a graceful shutdown (lifespan teardown runs).
 CMD ["uvicorn", "api.main:create_app", "--factory", \
-     "--host", "0.0.0.0", "--port", "8000", \
+     "--host", "0.0.0.0", "--port", "8080", \
      "--proxy-headers", "--no-access-log", "--timeout-graceful-shutdown", "20"]

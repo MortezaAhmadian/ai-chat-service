@@ -5,13 +5,46 @@ services:
       target: runtime
     image: ai-chat-service:local
     ports:
-      - "8000:8000"
+      - "8080:8080"           # vLLM uses 8000, so the API lives on 8080
     env_file:
       - path: .env
         required: false
     environment:
       APP_ENV: dev
       APP_LOG_JSON: "true"
-    init: true            # tiny init process: reaps zombies, forwards signals
+      APP_LLM_PROVIDER: vllm
+      # Inside a container, "localhost" is the container itself. This reaches
+      # vLLM running on the HOST. If you use the `vllm` service below instead,
+      # set APP_VLLM_BASE_URL=http://vllm:8000/v1 in .env.
+      APP_VLLM_BASE_URL: ${APP_VLLM_BASE_URL:-http://host.docker.internal:8000/v1}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # needed on Linux; automatic on Docker Desktop
+    init: true
     stop_grace_period: 25s
     restart: unless-stopped
+
+  # Optional: run vLLM in Docker too ->  docker compose --profile gpu up
+  # Requires the NVIDIA Container Toolkit. You already run vLLM yourself, so
+  # this is off by default.
+  vllm:
+    profiles: ["gpu"]
+    image: vllm/vllm-openai:latest
+    command:
+      - "Qwen/Qwen3.5-4B"
+      - "--max-model-len=16384"        # the 262k default context will not fit a consumer GPU
+      - "--gpu-memory-utilization=0.85"
+      - "--language-model-only"        # skip the vision encoder: more VRAM for KV cache
+    ports:
+      - "8000:8000"
+    ipc: host
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface   # don't re-download weights
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

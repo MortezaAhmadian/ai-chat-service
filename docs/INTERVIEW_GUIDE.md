@@ -511,6 +511,34 @@ can leak memory; on methods it holds `self` alive. Don't use on async functions:
 
 ---
 
+## 11b. Self-hosted models (vLLM)
+
+**🟡 Q93. Why serve the model with vLLM instead of loading it with `transformers` inside FastAPI?**
+GPU inference is blocking compute: inside an async server it freezes the event loop. A naive
+`model.generate()` also handles one request at a time. vLLM gives continuous batching and
+PagedAttention (efficient KV-cache memory), so many concurrent requests share the GPU, plus an
+OpenAI-compatible API. The API process stays CPU-only and stateless; model server and API
+scale and restart independently. → `api/llm/openai_compat.py`.
+
+**🔴 Q94. What is constrained (guided) decoding and why does it matter for small models?**
+At each step the server masks out tokens that would violate a grammar compiled from your JSON
+Schema, so the output is always parseable and schema-shaped. A 4B model is much less reliable at
+free-form JSON than a frontier model; constraining turns "usually valid" into "always
+structurally valid". You still validate with Pydantic: constraints don't check semantics, and
+some keywords (`discriminator`, some regex features) aren't supported by grammar backends,
+which is why the schema is sanitised first.
+
+**🔴 Q95. Hybrid "thinking" models in a structured-output pipeline?**
+Decide explicitly per request (`enable_thinking`) rather than trusting the model default, which
+varies across sizes. Thinking improves hard reasoning but adds latency, tokens and the risk of
+truncation before the JSON. Strip `<think>` blocks before parsing and never feed reasoning back
+into history.
+
+**🟡 Q96. How do you size `max-model-len` and concurrency on one GPU?**
+VRAM = weights + KV cache. The KV cache needed grows with context length × concurrent sequences.
+Lower `--max-model-len` to what you actually use, skip unused encoders, then load-test: increase
+API-side concurrency until throughput plateaus and p95 latency rises. That knee is your limit.
+
 ## 12. System-design scenarios (whiteboard)
 
 **🔴 S1. "Traffic goes 10× tomorrow."** Horizontal scale (stateless pods), move cache to Redis,
