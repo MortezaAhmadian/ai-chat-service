@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     log_json: bool = True
 
     # --- LLM provider -------------------------------------------------------
-    llm_provider: Literal["fake", "anthropic", "vllm"] = "fake"
+    llm_provider: Literal["anthropic", "vllm"] = "vllm"
     anthropic_api_key: SecretStr | None = None  # SecretStr: never printed in logs/repr
     anthropic_model: str = "claude-sonnet-5-5"
     anthropic_base_url: str = "https://api.anthropic.com"
@@ -30,11 +30,23 @@ class Settings(BaseSettings):
     # --- vLLM (or any OpenAI-compatible server) on your GPU ---------------------
     # Must match what vLLM serves: the HF repo id, or --served-model-name if set.
     vllm_base_url: str = Field(
-        default="http://localhost:8001/v1",
         validation_alias=AliasChoices("APP_VLLM_BASE_URL", "VLLM_URL"),
     )
-    vllm_model: str = "Qwen/Qwen3.5-4B"
-    vllm_api_key: SecretStr | None = None  # only if vLLM was started with --api-key
+    vllm_model: str = Field(
+        validation_alias=AliasChoices("APP_VLLM_MODEL", "VLLM_MODEL"),
+    )
+    vllm_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("APP_VLLM_API_KEY", "VLLM_API_KEY"),
+    )
+    vllm_basic_auth_user: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("APP_VLLM_BASIC_AUTH_USER", "NGINX_USER"),
+    )
+    vllm_basic_auth_password: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("APP_VLLM_BASIC_AUTH_PASSWORD", "NGINX_PASSWORD"),
+    )
     vllm_guided_json: bool = True  # constrained decoding via response_format=json_schema
     vllm_enable_thinking: bool = False
     # Qwen3.5 non-thinking sampling defaults, except presence_penalty: the
