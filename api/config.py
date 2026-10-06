@@ -8,7 +8,7 @@ first request).
 from functools import lru_cache
 from typing import Literal, Self
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import AliasChoices, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -27,7 +27,10 @@ class Settings(BaseSettings):
 
     # --- vLLM (or any OpenAI-compatible server) on your GPU ---------------------
     # Must match what vLLM serves: the HF repo id, or --served-model-name if set.
-    vllm_base_url: str = "http://localhost:8000/v1"
+    vllm_base_url: str = Field(
+        default="http://localhost:8001/v1",
+        validation_alias=AliasChoices("APP_VLLM_BASE_URL", "VLLM_URL"),
+    )
     vllm_model: str = "Qwen/Qwen3.5-4B"
     vllm_api_key: SecretStr | None = None  # only if vLLM was started with --api-key
     vllm_guided_json: bool = True  # constrained decoding via response_format=json_schema
