@@ -7,8 +7,7 @@ fake LLM.
 """
 
 import logging
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from collections.abc import AsyncGenerator, AsyncIterator
 
 from fastapi import FastAPI
 
@@ -33,7 +32,7 @@ def create_app(settings: Settings | None = None, *, llm_client: LLMClient | None
     settings = settings or get_settings()
     configure_logging(settings.log_level, json_logs=settings.log_json)
 
-    @asynccontextmanager
+    @AsyncGenerator
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # Everything that owns a resource (connection pool, semaphore) is built
         # here, inside the running event loop, and torn down on shutdown.
