@@ -9,7 +9,8 @@
 """
 
 import asyncio
-from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Iterable
+from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable
+from contextlib import asynccontextmanager
 from typing import TypeVar
 
 from api.errors import AppError, OverloadedError
@@ -27,8 +28,8 @@ class ConcurrencyLimiter:
         self.acquire_timeout_s = acquire_timeout_s
         self.in_use = 0
 
-    @AsyncGenerator
-    async def slot(self) -> AsyncIterator[None]:
+    @asynccontextmanager
+    async def slot(self) -> AsyncGenerator[None, None]:
         try:
             async with asyncio.timeout(self.acquire_timeout_s):
                 await self._sem.acquire()
