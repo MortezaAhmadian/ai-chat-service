@@ -30,9 +30,11 @@ class Settings(BaseSettings):
     # --- vLLM (or any OpenAI-compatible server) on your GPU ---------------------
     # Must match what vLLM serves: the HF repo id, or --served-model-name if set.
     vllm_base_url: str = Field(
+        default="http://localhost:8000/v1",
         validation_alias=AliasChoices("APP_VLLM_BASE_URL", "VLLM_URL"),
     )
     vllm_model: str = Field(
+        default="Qwen/Qwen3.5-4B",
         validation_alias=AliasChoices("APP_VLLM_MODEL", "VLLM_MODEL"),
     )
     vllm_api_key: SecretStr | None = Field(
