@@ -5,6 +5,7 @@ Override `settings` in a test module/class (or use the `make_client` factory)
 to test a different configuration.
 """
 
+import os
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AsyncExitStack
 from typing import Any
@@ -26,6 +27,21 @@ BASE_TEST_SETTINGS: dict[str, Any] = {
     "retry_base_delay_s": 0.0,
     "retry_max_delay_s": 0.01,
 }
+
+_SHARED_ENV_NAMES = ("VLLM_URL", "VLLM_MODEL", "VLLM_API_KEY", "NGINX_USER", "NGINX_PASSWORD")
+
+
+@pytest.fixture(autouse=True)
+def _isolate_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests must not depend on the developer's shell.
+
+    `_env_file=None` stops Settings from reading .env, but variables exported
+    in the shell (e.g. from other projects) would still leak in and change or
+    break the configuration. Remove every variable Settings could read.
+    """
+    for name in list(os.environ):
+        if name.startswith("APP_") or name in _SHARED_ENV_NAMES:
+            monkeypatch.delenv(name)
 
 
 def make_settings(**overrides: Any) -> Settings:
